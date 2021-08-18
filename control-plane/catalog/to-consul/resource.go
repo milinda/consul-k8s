@@ -140,6 +140,27 @@ type ServiceResource struct {
 func (t *ServiceResource) Informer() cache.SharedIndexInformer {
 	// Watch all k8s namespaces. Events will be filtered out as appropriate
 	// based on the allow and deny lists in the `shouldSync` function.
+	var namespace = ""
+	if t.AllowK8sNamespacesSet.Cardinality() == 1 {
+		namespace = t.AllowK8sNamespacesSet.Pop().(string)
+
+		println("Watching services in %s", namespace)
+		return cache.NewSharedIndexInformer(
+			&cache.ListWatch{
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					return t.Client.CoreV1().Services(namespace).List(context.TODO(), options)
+				},
+
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					return t.Client.CoreV1().Services(namespace).Watch(context.TODO(), options)
+				},
+			},
+			&apiv1.Service{},
+			0,
+			cache.Indexers{},
+		)
+	}
+
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
@@ -240,6 +261,7 @@ func (t *ServiceResource) doDelete(key string) {
 // Run implements the controller.Backgrounder interface.
 func (t *ServiceResource) Run(ch <-chan struct{}) {
 	t.Log.Info("starting runner for endpoints")
+	println(t.AllowK8sNamespacesSet.String())
 	(&controller.Controller{
 		Log:      t.Log.Named("controller/endpoints"),
 		Resource: &serviceEndpointsResource{Service: t},
@@ -678,6 +700,30 @@ func (t *serviceEndpointsResource) Informer() cache.SharedIndexInformer {
 	// `shouldTrackEndpoints` function which checks whether the service is marked
 	// to be tracked by the `shouldSync` function which uses the allow and deny
 	// namespace lists.
+	var namespace = ""
+	if t.Service.AllowK8sNamespacesSet.Cardinality() == 1 {
+		namespace = t.Service.AllowK8sNamespacesSet.Pop().(string)
+		println("Watching endpoints in %s", namespace)
+		return cache.NewSharedIndexInformer(
+			&cache.ListWatch{
+				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+					return t.Service.Client.CoreV1().
+						Endpoints(namespace).
+						List(context.TODO(), options)
+				},
+
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					return t.Service.Client.CoreV1().
+						Endpoints(namespace).
+						Watch(context.TODO(), options)
+				},
+			},
+			&apiv1.Endpoints{},
+			0,
+			cache.Indexers{},
+		)
+	}
+
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
